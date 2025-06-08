@@ -1,0 +1,20 @@
+services:
+  api:
+    build:
+      context: .
+    links:
+      - memcached
+    ports:
+      - 8000:8000
+    environment:
+      - MEMCACHED_HOST=memcached
+  memcached:
+    image: memcached
+    restart: always
+    expose:
+      - 11211
+    healthcheck:
+      test: [ "CMD", "memcached-tool", "localhost:11211", "stats" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5

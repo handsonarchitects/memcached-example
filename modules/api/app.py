@@ -1,13 +1,25 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 from pymemcache.client import base
+
 import os
+import logging
+import sys
+
+# Configure logging
+logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 
 class CacheItem(BaseModel):
     key: str
     value: str | None = None
 
 app = FastAPI()
+logger = logging.getLogger("api")
+
+@app.on_event("startup")
+async def startup_event():
+    logger.info("Starting up the FastAPI application...")
+    logger.debug("Using Memcached host: %s", os.getenv("MEMCACHED_HOST", "localhost"))
 
 @app.get("/items/{key}")
 async def read_cache_item(key: str):
