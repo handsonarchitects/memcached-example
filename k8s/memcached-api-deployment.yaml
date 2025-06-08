@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: memcached-api
+  name: memcached-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: memcached-api
+  strategy: {}
+  template:
+    metadata:
+      labels:
+        app: memcached-api
+    spec:
+      containers:
+      - image: handsonarchitects/memcached-api
+        name: memcached-api
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8000
+          protocol: TCP
+        env:
+        - name: MEMCACHED_HOST
+          value: 127.0.0.1
+          # value: memcached-cluster-0.memcached-cluster
+          # value: memcached-cluster
+        resources: 
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+      - image: handsonarchitects/memcached-sidecar
+        name: memcached-sidecar
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 11211
+          protocol: TCP
+        env:
+        - name: SERVERS
+          value: memcached-cluster-0.memcached-cluster:11211:1,memcached-cluster-1.memcached-cluster:11211:1
+        resources: 
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+status: {}
