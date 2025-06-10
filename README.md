@@ -7,13 +7,7 @@ git clone https://github.com/handsonarchitects/memcached-example.git
 cd memcached-example
 ```
 
-2. Build Docker images:
-
-```bash
-./scripts/build.sh
-```
-
-3. Deploy the Memcached cluster using Helm and Cache API:
+2. Build Docker images, deploy the Memcached cluster & Cache API:
 
 ```bash
 helm repo add bitnami https://charts.bitnami.com/bitnami
@@ -30,7 +24,26 @@ kubectl run run-cache-update --image nginx:alpine --restart Never --rm -it --com
 kubectl run run-cache-get --image nginx:alpine --restart Never --rm -it --command -- curl memcached-api:8000/items/my-key
 ```
 
-4. Destroy all resources:
+5. Generate load on the Memcached cluster:
+
+```bash
+./scripts/generate-load.sh
+kubectl wait --for=condition=complete job/tools-cache-generator
+```
+
+6. Get stats from the Memcached cluster:
+
+```bash
+kubectl run get-memcached-stats --image nginx:alpine --restart Never --rm -it --command -- curl telnet://memcached-cluster-0.memcached-cluster:11211
+```
+and then type `stats` in the terminal to see the stats (quit with `quit`).
+
+```bash
+kubectl run get-memcached-stats --image nginx:alpine --restart Never --rm -it --command -- curl telnet://memcached-cluster-1.memcached-cluster:11211
+```
+and then type `stats` in the terminal to see the stats (quit with `quit`).
+
+7. Destroy all resources:
 
 ```bash
 ./scripts/stop.sh

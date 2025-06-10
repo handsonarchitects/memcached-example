@@ -1,5 +1,11 @@
 #!/bin/bash
 
+docker image rm handsonarchitects/memcached-api
+docker image rm handsonarchitects/memcached-sidecar
+
+docker build -t handsonarchitects/memcached-api -f ./modules/cache-api/Dockerfile ./modules/cache-api
+docker build -t handsonarchitects/memcached-sidecar -f ./modules/memcached-sidecar/Dockerfile ./modules/memcached-sidecar
+
 helm install memcached-cluster \
   --set architecture="high-availability" \
   --set replicaCount=2 \

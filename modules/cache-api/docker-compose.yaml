@@ -11,8 +11,8 @@ services:
   memcached:
     image: memcached
     restart: always
-    expose:
-      - 11211
+    ports:
+      - 11211:11211
     healthcheck:
       test: [ "CMD", "memcached-tool", "localhost:11211", "stats" ]
       interval: 10s

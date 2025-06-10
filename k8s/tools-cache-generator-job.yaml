@@ -1,0 +1,30 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: tools-cache-generator
+  annotations:
+    batch.kubernetes.io/job-completion-index: "1"
+spec:
+  completions: 10
+  parallelism: 10
+  completionMode: Indexed
+  backoffLimit: 4
+  activeDeadlineSeconds: 3600
+  template:
+    spec:
+      containers:
+      - image: handsonarchitects/tools-cache-generator
+        imagePullPolicy: IfNotPresent
+        name: tools-cache-generator
+        env:
+          - name: BATCH_SIZE
+            value: "100"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi            
+      restartPolicy: Never
+status: {}
