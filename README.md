@@ -11,7 +11,7 @@ cd memcached-example
 
 ```bash
 helm repo add bitnami https://charts.bitnami.com/bitnami
-./scripts/start.sh
+./scripts/setup.sh
 ```
 
 4. Verify the deployment:
@@ -36,16 +36,16 @@ kubectl wait --for=condition=complete job/tools-cache-generator
 ```bash
 kubectl run get-memcached-stats --image nginx:alpine --restart Never --rm -it --command -- curl telnet://memcached-cluster-0.memcached-cluster:11211
 ```
-and then type `stats` in the terminal to see the stats (quit with `quit`).
+and then type `stats` in the terminal to see the stats (`total_items`), then quit with `quit`.
 
 ```bash
 kubectl run get-memcached-stats --image nginx:alpine --restart Never --rm -it --command -- curl telnet://memcached-cluster-1.memcached-cluster:11211
 ```
-and then type `stats` in the terminal to see the stats (quit with `quit`).
+and then type `stats` in the terminal to see the stats (`total_items`), then quit with `quit`.
 
 7. Destroy all resources:
 
 ```bash
-./scripts/stop.sh
+./scripts/destroy.sh
 ```
 
