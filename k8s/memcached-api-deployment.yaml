@@ -25,8 +25,6 @@ spec:
         env:
         - name: MEMCACHED_HOST
           value: 127.0.0.1
-          # value: memcached-cluster-0.memcached-cluster
-          # value: memcached-cluster
         resources: 
           requests:
             cpu: 100m

@@ -1,5 +1,10 @@
-FROM nginx:alpine
+ARG PYTHON_VERSION=3.13
 
-COPY ./generate-load.sh .
+FROM python:${PYTHON_VERSION}-alpine
 
-CMD [ "sh", "generate-load.sh" ]
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY app.py .
+
+CMD ["python", "app.py"]
