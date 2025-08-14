@@ -1,0 +1,48 @@
+[tool.black]
+line-length = 120
+target-version = ['py311']          # Target Python 3.11 syntax
+include = '\.pyi?$'                 # Include .py and .pyi files
+extend-exclude = '''                # Directories to ignore
+/(
+  # directories
+  \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | _build
+  | buck-out
+  | build
+  | dist
+)/
+'''
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+line_length = 120
+known_first_party = ["app"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+[tool.flake8]
+max-line-length = 120
+extend-ignore = ["E203", "W503"]
+exclude = [
+    ".git",
+    "__pycache__",
+    ".venv",
+    "venv",
+    "build",
+    "dist"
+]
+max-complexity = 10
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore:Please use `import python_multipart` instead.:PendingDeprecationWarning:starlette.formparsers"
+]
