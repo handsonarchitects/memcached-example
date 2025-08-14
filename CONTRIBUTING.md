@@ -94,15 +94,17 @@ Contains configuration for:
 
 ## CI/CD Pipeline
 
-The project uses GitHub Actions for continuous integration with the following workflow:
+The project uses GitHub Actions for continuous integration with the following workflows:
 
-### Pipeline Triggers
+### 1. Python CI Workflow (`python-ci.yml`)
+
+#### Pipeline Triggers
 - **Push** to `main` branch
 - **Pull requests** targeting `main` branch
 
-### Pipeline Jobs
+#### Pipeline Jobs
 
-#### 1. Test Job
+##### Test Job
 - **Matrix Strategy**: Tests against Python 3.11 and 3.12
 - **Modules Tested**: `cache-api` and `tools/cache-generator`
 - **Steps**:
@@ -113,15 +115,33 @@ The project uses GitHub Actions for continuous integration with the following wo
   - Type checking with `mypy`
   - Unit testing with `pytest`
 
-#### 2. Docker Build Job
+##### Docker Build Job
 - Builds Docker images for both modules
 - Validates that containers can be created successfully
 - Runs only after tests pass
 
-#### 3. Security Scan Job
+##### Security Scan Job
 - Vulnerability scanning with `safety`
 - Security linting with `bandit`
 - Generates security reports
+
+### 2. Kubernetes E2E Workflow (`k8s-e2e.yml`)
+
+#### Pipeline Triggers
+- **Push** to `main` branch
+- **Pull requests** targeting `main` branch
+- **Manual dispatch** for on-demand testing
+
+#### Pipeline Steps
+1. **Cluster Setup**: Creates a Kind Kubernetes cluster with 3 nodes
+2. **Image Building**: Builds all Docker images (API, sidecar, cache-generator)
+3. **Image Loading**: Loads images into Kind cluster
+4. **Memcached Deployment**: Deploys high-availability Memcached cluster using Helm
+5. **API Deployment**: Deploys cache API with sidecar proxy
+6. **Health Verification**: Tests API health endpoints
+7. **Load Generation**: Runs cache-generator job to simulate load
+8. **Cache Verification**: Tests cache operations (set/get) through API
+9. **Log Collection**: Gathers diagnostics for troubleshooting
 
 ## Development Workflow
 
@@ -147,6 +167,74 @@ pytest -v
 cd modules/tools/cache-generator
 pytest -v
 ```
+
+### Integration Testing with Kubernetes
+
+You can run the full integration test locally using the provided scripts:
+
+#### Quick Start with Integration Script
+
+```bash
+# Run full integration test (setup + deploy + test + cleanup)
+./scripts/integration-test.sh run
+
+# Or use individual commands:
+./scripts/integration-test.sh setup    # Setup cluster and deploy apps
+./scripts/integration-test.sh test     # Run load generation and tests
+./scripts/integration-test.sh logs     # Show diagnostics
+./scripts/integration-test.sh cleanup  # Clean up resources
+```
+
+#### Prerequisites for Local K8s Testing
+- **Docker** installed and running
+- **kubectl** configured
+- **Helm** installed
+- **Kind** or **minikube** for local cluster
+
+#### Manual Step-by-Step Process
+
+```bash
+# 1. Start your local Kubernetes cluster (Kind example)
+kind create cluster --name memcached-test
+
+# 2. Run the setup script to deploy applications
+./scripts/setup.sh
+
+# 3. Wait for deployments to be ready
+kubectl rollout status deployment/memcached-api -w
+
+# 4. Generate load using the cache-generator
+./scripts/generate-load.sh
+
+# 5. Monitor the job progress
+kubectl get jobs -w
+kubectl logs -f job/tools-cache-generator
+
+# 6. Test the API manually
+kubectl port-forward service/memcached-api 8080:8000 &
+curl http://localhost:8080/health
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"key": "test", "value": "hello"}' \
+  http://localhost:8080/items/
+curl http://localhost:8080/items/test
+
+# 7. Cleanup
+./scripts/destroy.sh
+kind delete cluster --name memcached-test
+```
+
+#### GitHub Actions E2E Tests
+
+The Kubernetes E2E workflow automatically:
+- Creates a Kind cluster with multi-node setup
+- Builds and loads all Docker images
+- Deploys Memcached cluster using Helm
+- Deploys the cache API with sidecar proxy
+- Runs load generation jobs
+- Verifies cache operations work end-to-end
+- Collects logs for debugging
+
+**Manual Trigger**: You can manually trigger the E2E workflow from the GitHub Actions tab in your repository.
 
 ### Writing Tests
 
@@ -189,6 +277,62 @@ fix: handle missing environment variables gracefully
 docs: update configuration documentation
 test: add comprehensive payload validation tests
 ```
+
+### Running GitHub Actions Locally
+
+You can run GitHub Actions workflows locally for testing before pushing:
+
+#### Using Act (Recommended)
+
+```bash
+# Install Act (macOS)
+brew install act
+
+# Install Act (Linux)
+curl -s https://raw.githubusercontent.com/nektos/act/master/install.sh | sudo bash
+
+# Run Python CI workflow
+act push -W .github/workflows/python-ci.yml
+
+# Run Kubernetes E2E workflow
+act push -W .github/workflows/k8s-e2e.yml \
+  --container-architecture linux/amd64 \
+  -P ubuntu-latest=catthehacker/ubuntu:act-latest \
+  --privileged
+```
+
+#### Act Compatibility
+
+**Solution**: The K8s E2E workflow uses external configuration files to ensure compatibility:
+- `k8s-e2e.yml` - Works with both GitHub Actions and Act
+- `.github/kind-config.yaml` - Separate Kind cluster configuration file
+- External tool installation steps compatible with Act runners
+
+#### Prerequisites for Local Act Execution
+- **Docker** with at least 4GB RAM and 2 CPU cores
+- **Act** tool installed
+- **Privileged mode** for Kind cluster creation
+
+#### Common Act Issues and Solutions
+
+1. **Docker resource constraints**
+   ```bash
+   # Increase Docker resources in Docker Desktop settings
+   # Memory: 4GB+, CPUs: 2+
+   ```
+
+2. **Permission issues**
+   ```bash
+   # Run Act with privileged mode and Docker socket access
+   act push --privileged -v /var/run/docker.sock:/var/run/docker.sock
+   ```
+
+#### Alternative Methods
+
+1. **Local Integration Script**: Use `./scripts/integration-test.sh` for local testing
+2. **Pre-commit Hooks**: Set up hooks to run quality checks before commits
+3. **VS Code Extensions**: Use GitHub Actions extension for validation
+4. **Draft PRs**: Push to draft PRs to run actions without affecting main branch
 
 ## Getting Help
 

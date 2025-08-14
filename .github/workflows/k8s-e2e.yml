@@ -1,0 +1,236 @@
+name: Kubernetes E2E Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  k8s-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Install kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'v1.28.0'
+
+    - name: Install Helm
+      uses: azure/setup-helm@v3
+      with:
+        version: 'v3.12.0'
+
+    - name: Create Kind cluster
+      uses: helm/kind-action@v1.10.0
+      with:
+        cluster_name: memcached-test
+        config: .github/kind-config.yaml
+
+    - name: Verify cluster is ready
+      run: |
+        echo "Waiting for cluster to be ready..."
+        kubectl wait --for=condition=Ready nodes --all --timeout=300s
+        kubectl get nodes -o wide
+
+    - name: Build Docker images
+      run: |
+        echo "Building cache-api image..."
+        docker build -t handsonarchitects/memcached-api:latest -f ./modules/cache-api/Dockerfile ./modules/cache-api
+        
+        echo "Building memcached-sidecar image..."
+        docker build -t handsonarchitects/memcached-sidecar:latest -f ./modules/memcached-sidecar/Dockerfile ./modules/memcached-sidecar
+        
+        echo "Building cache-generator image..."
+        docker build -t handsonarchitects/tools-cache-generator:latest -f ./modules/tools/cache-generator/Dockerfile ./modules/tools/cache-generator
+
+    - name: Load Docker images to Kind
+      run: |
+        echo "Loading images to Kind cluster..."
+        kind load docker-image handsonarchitects/memcached-api:latest --name memcached-test
+        kind load docker-image handsonarchitects/memcached-sidecar:latest --name memcached-test
+        kind load docker-image handsonarchitects/tools-cache-generator:latest --name memcached-test
+
+    - name: Deploy Memcached cluster with Helm
+      run: |
+        echo "Adding Bitnami Helm repository..."
+        helm repo add bitnami https://charts.bitnami.com/bitnami
+        helm repo update
+        
+        echo "Installing Memcached cluster..."
+        helm install memcached-cluster \
+          --set architecture="high-availability" \
+          --set replicaCount=2 \
+          --wait --timeout=300s \
+          bitnami/memcached
+
+    - name: Wait for Memcached cluster to be ready
+      run: |
+        echo "Waiting for Memcached pods to be ready..."
+        kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=memcached --timeout=300s
+        kubectl get pods -l app.kubernetes.io/name=memcached
+
+    - name: Deploy cache API application
+      run: |
+        echo "Deploying cache API..."
+        kubectl apply -f k8s/memcached-api-deployment.yaml
+        kubectl apply -f k8s/memcached-api-service.yaml
+        
+        echo "Waiting for API deployment to be ready..."
+        kubectl rollout status deployment/memcached-api --timeout=300s
+
+    - name: Verify API deployment
+      run: |
+        echo "Checking API pods..."
+        kubectl get pods -l app=memcached-api
+        kubectl describe pods -l app=memcached-api
+        
+        echo "Checking API service..."
+        kubectl get svc memcached-api
+
+    - name: Test API health
+      run: |
+        echo "Port-forwarding to test API..."
+        kubectl port-forward service/memcached-api 8080:8000 &
+        PF_PID=$!
+        
+        # Wait for port-forward to be ready
+        sleep 10
+        
+        # Test API health endpoint
+        curl -f http://localhost:8080/health || {
+          echo "API health check failed"
+          kubectl logs -l app=memcached-api --tail=50
+          kill $PF_PID 2>/dev/null || true
+          exit 1
+        }
+        
+        echo "API health check passed"
+        kill $PF_PID 2>/dev/null || true
+
+    - name: Generate load with cache-generator
+      run: |
+        echo "Deploying cache generator job..."
+        kubectl apply -f k8s/tools-cache-generator-job.yaml
+        
+        echo "Waiting for cache generator job to complete..."
+        # Wait for job to start
+        sleep 30
+        
+        # Check job status
+        kubectl get jobs tools-cache-generator
+        kubectl get pods -l job-name=tools-cache-generator
+
+    - name: Monitor load generation
+      run: |
+        echo "Monitoring cache generator job progress..."
+        timeout=600  # 10 minutes
+        elapsed=0
+        interval=30
+        
+        while [ $elapsed -lt $timeout ]; do
+          job_status=$(kubectl get job tools-cache-generator -o jsonpath='{.status.conditions[?(@.type=="Complete")].status}' || echo "")
+          job_failed=$(kubectl get job tools-cache-generator -o jsonpath='{.status.conditions[?(@.type=="Failed")].status}' || echo "")
+          
+          if [ "$job_status" = "True" ]; then
+            echo "Cache generator job completed successfully!"
+            break
+          elif [ "$job_failed" = "True" ]; then
+            echo "Cache generator job failed!"
+            kubectl describe job tools-cache-generator
+            kubectl logs -l job-name=tools-cache-generator --tail=100
+            exit 1
+          else
+            echo "Job still running... (elapsed: ${elapsed}s)"
+            kubectl get pods -l job-name=tools-cache-generator
+          fi
+          
+          sleep $interval
+          elapsed=$((elapsed + interval))
+        done
+        
+        if [ $elapsed -ge $timeout ]; then
+          echo "Job timed out after ${timeout} seconds"
+          kubectl describe job tools-cache-generator
+          kubectl logs -l job-name=tools-cache-generator --tail=100
+          exit 1
+        fi
+
+    - name: Verify cache operations
+      run: |
+        echo "Testing cache operations through API..."
+        kubectl port-forward service/memcached-api 8080:8000 &
+        PF_PID=$!
+        
+        # Wait for port-forward to be ready
+        sleep 10
+        
+        # Test cache operations using correct endpoints
+        echo "Testing cache set operation..."
+        curl -X POST -H "Content-Type: application/json" \
+          -d '{"key": "test-key", "value": "test-value"}' \
+          http://localhost:8080/items/ || {
+          echo "Cache set operation failed"
+          kubectl logs -l app=memcached-api --tail=50
+          kill $PF_PID 2>/dev/null || true
+          exit 1
+        }
+        
+        echo "Testing cache get operation..."
+        response=$(curl -s http://localhost:8080/items/test-key || echo "")
+        if echo "$response" | grep -q "test-value"; then
+          echo "Cache get operation successful"
+        else
+          echo "Cache get operation failed: $response"
+          kubectl logs -l app=memcached-api --tail=50
+          kill $PF_PID 2>/dev/null || true
+          exit 1
+        fi
+        
+        kill $PF_PID 2>/dev/null || true
+
+    - name: Collect logs and diagnostics
+      if: always()
+      run: |
+        echo "=== Cluster Info ==="
+        kubectl cluster-info
+        
+        echo "=== Node Status ==="
+        kubectl get nodes -o wide
+        
+        echo "=== All Pods ==="
+        kubectl get pods --all-namespaces
+        
+        echo "=== Memcached Cluster Logs ==="
+        kubectl logs -l app.kubernetes.io/name=memcached --tail=50 || true
+        
+        echo "=== API Logs ==="
+        kubectl logs -l app=memcached-api --tail=50 || true
+        
+        echo "=== Cache Generator Logs ==="
+        kubectl logs -l job-name=tools-cache-generator --tail=50 || true
+        
+        echo "=== Services ==="
+        kubectl get svc
+        
+        echo "=== Jobs ==="
+        kubectl get jobs
+        
+        echo "=== Events ==="
+        kubectl get events --sort-by=.metadata.creationTimestamp --all-namespaces | tail -20
+
+    - name: Cleanup
+      if: always()
+      run: |
+        echo "Cleaning up resources..."
+        kubectl delete job tools-cache-generator --ignore-not-found=true
+        kubectl delete -f k8s/ --ignore-not-found=true
+        helm uninstall memcached-cluster --ignore-not-found || true
