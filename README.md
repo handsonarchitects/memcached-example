@@ -49,3 +49,7 @@ and then type `stats` in the terminal to see the stats (`total_items`), then qui
 ./scripts/destroy.sh
 ```
 
+## Development
+
+For local development setup, testing guidelines, and contribution instructions, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
